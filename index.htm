@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI MINECRAFT: Smaller Map with Hills, Noise Texture, and Music</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            font-family: Arial, sans-serif;
+        } 
+        canvas { 
+            display: block; 
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 2px;
+            background-color: white;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+        }
+        /* --- Start Menu Styles --- */
+        #start-menu {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 1000;
+            transition: opacity 0.5s;
+        }
+        #start-menu h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        #start-menu button {
+            padding: 10px 20px;
+            font-size: 1.5em;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        #start-menu button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="crosshair"></div>
+    <div id="start-menu">
+        <h1>WHATS UP HABIBI HIGHWAYERS</h1>
+        <h2>THIS IS AI MINECRAFT. Cool right?</h2>
+        <p style="font-size: 1.5em; margin-bottom: 30px;">HAVE FUN!!!!!!!!</p>
+        <button id="startButton">Okay</button>
+    </div>
+    
+    <audio id="minecraft-music" loop src="https://cdns-preview-e.dzcdn.net/stream/c-e95843a9689497e20b30164c399b2404-3.mp3" type="audio/mpeg"></audio>
+
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.165.0/build/three.module.js" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- Utility: Simple Perlin-like Noise Function (for hills) ---
+        // This is a minimal, quick-to-implement noise function.
+        const P = new Array(512);
+        const permutation = [
+            151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 
+            140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148, 
+            247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32, 
+            57, 177, 33, 88, 237, 149, 56, 87, 175, 85, 116, 68, 19, 49, 12, 167, 
+            58, 127, 44, 187, 144, 134, 171, 196, 168, 2, 136, 178, 224, 1, 255, 71, 
+            223, 213, 16, 45, 100, 246, 154, 107, 43, 83, 59, 10, 191, 125, 173, 135, 
+            180, 205, 164, 126, 4, 185, 239, 78, 13, 72, 63, 193, 169, 10, 153, 170, 
+            143, 6, 15, 228, 128, 9, 66, 23, 74, 5, 128, 207, 47, 163, 155, 182, 
+            152, 181, 14, 177, 215, 25, 20, 4, 73, 119, 184, 10, 48, 16, 186, 24, 
+            145, 15, 14, 250, 11, 20, 199, 8, 170, 23, 209, 14, 39, 234, 5, 227
+        ];
+        for (let i = 0; i < 256; i++) {
+            P[i] = P[i + 256] = permutation[i];
+        }
+
+        function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+        function lerp(t, a, b) { return a + t * (b - a); }
+        function grad(hash, x, y) {
+            let h = hash & 15;
+            let u = h < 8 ? x : y;
+            let v = h < 4 ? y : h == 12 || h == 14 ? x : 0;
+            return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
+        }
+
+        // 2D Noise
+        function perlinNoise(x, y) {
+            let X = Math.floor(x) & 255;
+            let Y = Math.floor(y) & 255;
+            x -= Math.floor(x);
+            y -= Math.floor(y);
+            let u = fade(x);
+            let v = fade(y);
+
+            let A = P[X] + Y;
+            let B = P[X + 1] + Y;
+
+            return lerp(v,
+                lerp(u, grad(P[A], x, y), grad(P[B], x - 1, y)),
+                lerp(u, grad(P[A + 1], x, y - 1), grad(P[B + 1], x - 1, y - 1))
+            ) * 0.5 + 0.5; // Scale to 0 to 1
+        }
+        // --- End Noise Function ---
+
+
+        // --- Setup Scene, Camera, Renderer ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.insertBefore(renderer.domElement, document.getElementById('crosshair')); 
+
+        renderer.domElement.addEventListener('contextmenu', e => e.preventDefault()); 
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        // --- Skybox (Procedural) ---
+        const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
+        const skyMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                topColor: { value: new THREE.Color(0x87ceeb) }, 
+                bottomColor: { value: new THREE.Color(0xffffff) },
+                offset: { value: 33 },
+                exponent: { value: 0.6 }
+            },
+            vertexShader: `
+                varying vec3 vWorldPosition;
+                void main() {
+                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                    vWorldPosition = worldPosition.xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 topColor;
+                uniform vec3 bottomColor;
+                uniform float offset;
+                uniform float exponent;
+                varying vec3 vWorldPosition;
+                void main() {
+                    float h = normalize(vWorldPosition + offset).y;
+                    gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+                }
+            `,
+            side: THREE.BackSide
+        });
+        const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+        scene.add(sky);
+
+        // --- Blocks Management and Terrain Generation ---
+        const blocks = [];
+        let nextBlockId = 0;
+
+        // Textures
+        const textureLoader = new THREE.TextureLoader();
+        const grassTexture = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/minecraft/grass.png');
+        
+        // --- Stone Texture FIX: Procedurally generate simple noise (guaranteed to load) ---
+        function createNoiseTexture() {
+            const size = 4; 
+            const data = new Uint8Array(4 * size * size);
+            
+            for (let i = 0; i < size * size; i++) {
+                const shade = 100 + Math.floor(Math.random() * 51); 
+                data[i * 4] = shade;
+                data[i * 4 + 1] = shade;
+                data[i * 4 + 2] = shade;
+                data[i * 4 + 3] = 255;
+            }
+
+            const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+            texture.needsUpdate = true;
+            texture.minFilter = THREE.NearestFilter;
+            texture.magFilter = THREE.NearestFilter;
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(1, 1);
+            return texture;
+        }
+
+        const noisyStoneTexture = createNoiseTexture();
+        
+        // Materials
+        const grassMaterial = new THREE.MeshStandardMaterial({ map: grassTexture });
+        
+        const stoneMaterial = new THREE.MeshStandardMaterial({ 
+            map: noisyStoneTexture, 
+            color: 0xffffff,
+            roughness: 0.8
+        }); 
+
+        // Cube geometry (reuse)
+        const cubeGeometry = new THREE.BoxGeometry(1, 1, 1); 
+
+        function createCube(x, y, z, material) {
+            const cube = new THREE.Mesh(cubeGeometry, material);
+            cube.position.set(x, y, z);
+            cube.userData.id = nextBlockId++;
+            scene.add(cube);
+            blocks.push(cube);
+        }
+
+        // Simple static terrain
+        const terrainSize = 25; // DECREASED MAP SIZE
+        const noiseScale = 0.05; // How spread out the hills are (smaller number = smoother, larger hills)
+        const heightMultiplier = 5; // Max height of the hills
+
+        for (let x = -terrainSize; x <= terrainSize; x++) {
+            for (let z = -terrainSize; z <= terrainSize; z++) {
+                // Calculate height using noise function
+                let noiseVal = perlinNoise(x * noiseScale, z * noiseScale);
+                
+                // Scale noise to an integer height, centered around a base Y of 0
+                let height = Math.floor(noiseVal * heightMultiplier); 
+
+                // Place the grass block at the calculated height
+                createCube(x, height + 0.5, z, grassMaterial);
+            }
+        }
+
+        // --- Player Setup and Controls ---
+        const playerObject = new THREE.Object3D();
+        scene.add(playerObject);
+        playerObject.add(camera);
+        const playerHeight = 1.6; 
+        
+        // Find a starting point that is on top of the terrain
+        const initialNoise = perlinNoise(0 * noiseScale, 0 * noiseScale);
+        const initialHeight = Math.floor(initialNoise * heightMultiplier);
+        playerObject.position.y = initialHeight + 0.5 + playerHeight; 
+        playerObject.position.x = 0;
+        playerObject.position.z = 0;
+
+        // Movement variables
+        const moveSpeed = 0.1;
+        const rotationSpeed = 0.002;
+        const keys = { w: false, a: false, s: false, d: false, ' ': false };
+
+        // Jumping variables
+        let isJumping = false;
+        let jumpVelocity = 0;
+        const gravity = -0.01;
+        const jumpPower = 0.15;
+        const playerWidth = 0.4; 
+        const epsilon = 0.01; 
+
+        // Raycasting
+        const blockRaycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(), 0.1, 8); 
+        const center = new THREE.Vector2(0, 0);
+        
+        const floorRaycaster = new THREE.Raycaster();
+        floorRaycaster.ray.direction.set(0, -1, 0);
+
+        // --- Start Menu/Pointer Lock/Music Logic ---
+        const startMenu = document.getElementById('start-menu');
+        const startButton = document.getElementById('startButton');
+        const music = document.getElementById('minecraft-music');
+
+        function lockPointer() {
+             document.body.requestPointerLock();
+        }
+
+        startButton.addEventListener('click', () => {
+            // Start the music!
+            music.volume = 0.3;
+            music.play().catch(e => console.log("Music play failed:", e));
+
+            // Hide the menu
+            startMenu.style.opacity = '0';
+            setTimeout(() => {
+                startMenu.style.display = 'none';
+            }, 500); 
+
+            // Start the game by locking the pointer
+            lockPointer();
+        });
+
+        document.body.addEventListener('click', () => {
+             if (document.pointerLockElement === null && startMenu.style.display === 'none') {
+                 lockPointer();
+             }
+        });
+
+        // Key handlers
+        document.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (keys.hasOwnProperty(key)) {
+                keys[key] = true;
+            }
+            if (e.key === ' ' && !isJumping && jumpVelocity === 0) { 
+                isJumping = true;
+                jumpVelocity = jumpPower;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            if (keys.hasOwnProperty(key)) {
+                keys[key] = false;
+            }
+        });
+
+        // Mouse look
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement === document.body) {
+                const deltaX = e.movementX;
+                const deltaY = e.movementY;
+
+                playerObject.rotation.y -= deltaX * rotationSpeed;
+                
+                camera.rotation.x -= deltaY * rotationSpeed;
+                camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+            }
+        });
+
+        // --- Block Interaction Logic (Mouse Clicks) ---
+        document.addEventListener('mousedown', (e) => {
+            if (document.pointerLockElement !== document.body) return;
+
+            blockRaycaster.setFromCamera(center, camera);
+            const intersects = blockRaycaster.intersectObjects(blocks, true); 
+
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
+                const intersectedBlock = intersect.object;
+                
+                // Left Mouse Button (0): BREAK BLOCK
+                if (e.button === 0) { 
+                    scene.remove(intersectedBlock);
+                    const index = blocks.findIndex(block => block.userData.id === intersectedBlock.userData.id);
+                    if (index > -1) {
+                        blocks.splice(index, 1);
+                    }
+                } 
+                
+                // Right Mouse Button (2): PLACE BLOCK
+                else if (e.button === 2) { 
+                    const newPosition = intersectedBlock.position.clone().add(intersect.face.normal); 
+                    
+                    const isPlayerOverlap = (
+                        Math.abs(playerObject.position.x - newPosition.x) < 0.8 &&
+                        Math.abs(playerObject.position.z - newPosition.z) < 0.8 &&
+                        Math.abs(playerObject.position.y - newPosition.y) < playerHeight 
+                    );
+                    
+                    if (!blocks.some(block => block.position.equals(newPosition)) && !isPlayerOverlap) {
+                        createCube(newPosition.x, newPosition.y, newPosition.z, stoneMaterial); 
+                    }
+                }
+            }
+        });
+        
+        // --- Collision Detection Functions ---
+        const playerBox = new THREE.Box3();
+        function checkHorizontalCollision(newPos) {
+            const centerPos = new THREE.Vector3(newPos.x, newPos.y - (playerHeight / 2), newPos.z);
+            
+            playerBox.setFromCenterAndSize(
+                centerPos, 
+                new THREE.Vector3(playerWidth, playerHeight * 0.9, playerWidth) 
+            );
+
+            for (const block of blocks) {
+                const blockBox = new THREE.Box3().setFromObject(block); 
+                if (playerBox.intersectsBox(blockBox)) {
+                    if (block.position.y <= playerObject.position.y + 0.1) {
+                         return true; 
+                    }
+                }
+            }
+            return false;
+        }
+
+        // --- Main Animation Loop ---
+        const nextPosition = new THREE.Vector3();
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Only update game state if the pointer is locked
+            if (document.pointerLockElement === document.body) {
+
+                // Step 1: Horizontal Movement and Collision
+                const forward = new THREE.Vector3(0, 0, -1);
+                const right = new THREE.Vector3(1, 0, 0);
+
+                forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), playerObject.rotation.y);
+                right.applyAxisAngle(new THREE.Vector3(0, 1, 0), playerObject.rotation.y);
+
+                nextPosition.copy(playerObject.position);
+                
+                if (keys.w) { nextPosition.add(forward.multiplyScalar(moveSpeed)); }
+                if (keys.s) { nextPosition.add(forward.multiplyScalar(-moveSpeed)); }
+                if (keys.a) { nextPosition.add(right.multiplyScalar(-moveSpeed)); }
+                if (keys.d) { nextPosition.add(right.multiplyScalar(moveSpeed)); }
+
+                const targetX = nextPosition.x;
+                const targetZ = nextPosition.z;
+                
+                if (!checkHorizontalCollision(new THREE.Vector3(targetX, playerObject.position.y, playerObject.position.z))) {
+                     playerObject.position.x = targetX;
+                }
+                if (!checkHorizontalCollision(new THREE.Vector3(playerObject.position.x, playerObject.position.y, targetZ))) {
+                    playerObject.position.z = targetZ;
+                }
+
+                // Step 2: Vertical Movement and Collision (Gravity/Jumping)
+                
+                floorRaycaster.ray.origin.set(
+                    playerObject.position.x, 
+                    playerObject.position.y,
+                    playerObject.position.z
+                );
+                
+                const distanceToLook = playerHeight + Math.abs(jumpVelocity) + epsilon; 
+
+                const intersects = floorRaycaster.intersectObjects(blocks, true);
+                let floorY = -Infinity;
+
+                if (intersects.length > 0) {
+                    const intersect = intersects[0];
+                    if (intersect.distance < distanceToLook) {
+                        floorY = intersect.point.y; 
+                    }
+                } else {
+                    // Fall to the absolute lowest possible ground (not really needed with noise, but safe)
+                    floorY = -10.0;
+                }
+                
+                const playerGroundY = floorY + playerHeight; 
+                
+                // Apply gravity
+                playerObject.position.y += jumpVelocity;
+                jumpVelocity += gravity;
+
+                // Stop falling/jumping when player reaches the calculated floor height
+                if (playerObject.position.y <= playerGroundY + epsilon) {
+                    playerObject.position.y = playerGroundY;
+                    isJumping = false;
+                    jumpVelocity = 0;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // --- Window Resize Handler ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
